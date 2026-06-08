@@ -40,6 +40,7 @@ from ultralytics.nn.modules import (
     CBFuse,
     CBLinear,
     Classify,
+    HierarchicalClassify,
     Concat,
     Conv,
     Conv2,
@@ -83,6 +84,7 @@ from ultralytics.utils.loss import (
     v8OBBLoss,
     v8PoseLoss,
     v8SegmentationLoss,
+    HierarchicalClassificationLoss,
 )
 from ultralytics.utils.ops import make_divisible
 from ultralytics.utils.patches import torch_load
@@ -688,7 +690,11 @@ class ClassificationModel(BaseModel):
 
     def init_criterion(self):
         """Initialize the loss criterion for the ClassificationModel."""
-        return v8ClassificationLoss()
+        # Check if we're doing hierarchical classification
+        if hasattr(self, 'hierarchical') and self.hierarchical:
+            return HierarchicalClassificationLoss()
+        else:
+            return v8ClassificationLoss()
 
 
 class RTDETRDetectionModel(DetectionModel):

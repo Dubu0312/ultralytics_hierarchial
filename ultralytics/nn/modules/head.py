@@ -812,6 +812,70 @@ class Classify(nn.Module):
         return y if self.export else (y, x)
 
 
+class HierarchicalClassify(nn.Module):
+    """Hierarchical classification head for multi-level classification.
+
+    This head supports multiple classification levels (order, family, genus, species)
+    with each level having its own classification head, similar to the ViT approach.
+    """
+
+    export = False  # export mode
+
+    def __init__(self, c1: int, levels: dict, k: int = 1, s: int = 1, p: int | None = None, g: int = 1):
+        """Initialize hierarchical classification head.
+
+        Args:
+            c1 (int): Number of input channels.
+            levels (dict): Dictionary mapping level names to number of classes.
+                          e.g., {"order": 10, "family": 20, "genus": 50, "species": 100}
+            k (int, optional): Kernel size.
+            s (int, optional): Stride.
+            p (int, optional): Padding.
+            g (int, optional): Groups.
+        """
+        super().__init__()
+        c_ = 1280  # efficientnet_b0 size
+        self.conv = Conv(c1, c_, k, s, p, g)
+        self.pool = nn.AdaptiveAvgPool2d(1)  # to x(b,c_,1,1)
+        self.drop = nn.Dropout(p=0.0, inplace=True)
+
+        # Create separate heads for each level
+        self.heads = nn.ModuleDict()
+        self.level_names = list(levels.keys())
+        for level_name, num_classes in levels.items():
+            self.heads[level_name] = nn.Linear(c_, num_classes)
+
+    def forward(self, x: list[torch.Tensor] | torch.Tensor) -> dict:
+        """Perform forward pass of the hierarchical classification head.
+
+        Args:
+            x (torch.Tensor | list[torch.Tensor]): Input tensor from backbone.
+
+        Returns:
+            dict: Dictionary with predictions for each level.
+        """
+        if isinstance(x, list):
+            x = torch.cat(x, 1)
+
+        # Common feature extraction
+        features = self.pool(self.conv(x)).flatten(1)
+        features = self.drop(features)
+
+        # Level-specific predictions
+        predictions = {}
+        for level_name, head in self.heads.items():
+            predictions[level_name] = head(features)
+
+        if self.training:
+            return predictions
+        else:
+            # Return softmax probabilities for each level
+            result = {}
+            for level_name, pred in predictions.items():
+                result[level_name] = F.softmax(pred, dim=1)
+            return result
+
+
 class WorldDetect(Detect):
     """Head for integrating YOLO detection models with semantic understanding from text embeddings.
 

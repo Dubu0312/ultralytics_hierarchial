@@ -1241,3 +1241,38 @@ class TVPSegmentLoss(TVPDetectLoss):
         vp_loss = self.vp_criterion(preds, batch)
         cls_loss = vp_loss[0][2]
         return cls_loss, vp_loss[1]
+
+
+class HierarchicalClassificationLoss:
+    """Loss function for hierarchical classification."""
+
+    def __init__(self, lambdas: dict = None):
+        """
+        Args:
+            lambdas: Dictionary with weights for each level
+                     e.g., {"order": 1.0, "family": 0.9, "genus": 0.8, "species": 0.7}
+        """
+        self.lambdas = lambdas or {"order": 1.0, "family": 1.0, "genus": 1.0, "species": 1.0}
+
+    def __call__(self, preds: dict, targets: dict) -> tuple[torch.Tensor, dict]:
+        """
+        Args:
+            preds: Dictionary with predictions for each level
+            targets: Dictionary with targets for each level
+
+        Returns:
+            total_loss: Combined loss
+            loss_components: Dictionary with individual losses
+        """
+        total_loss = 0.0
+        loss_components = {}
+
+        for level_name, pred in preds.items():
+            if level_name in targets:
+                target = targets[level_name]
+                loss = F.cross_entropy(pred, target)
+                weighted_loss = self.lambdas[level_name] * loss
+                total_loss += weighted_loss
+                loss_components[level_name] = loss.item()
+
+        return total_loss, loss_components
