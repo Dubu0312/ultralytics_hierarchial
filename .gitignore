@@ -3,9 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Incremental learning outputs (checkpoints, logs, figures)
+# Incremental learning outputs (checkpoints, large files only)
 pollen_incremental/sessions/
-pollen_incremental/results/
+pollen_incremental/base_train_17/
+# results/ KEPT — small JSON/CSV metrics for paper
 
 # C extensions
 *.so

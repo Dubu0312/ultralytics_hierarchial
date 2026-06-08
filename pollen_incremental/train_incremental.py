@@ -255,9 +255,21 @@ def run_session(
     # 3. Extend taxonomy with new session's CSV
     map_df = pd.read_csv(mapping_csv_new)
     new_state, delta = extend_state(prev.tax_state, map_df)
-    print(f"  Delta: {delta.as_dict()}  (new total: {new_state.n_classes()})")
+    print(f"  Delta (new IDs added): {delta.as_dict()}")
 
-    n_old = prev.n_classes()  # for KD slicing
+    # Compute HEAD-SIZE delta (the actual #columns to add to each Linear head).
+    # This differs from `delta` (which counts new IDs added to each level's set):
+    # ID convention is `n_class = max_id + 1`, so adding a class with an ID
+    # that fits in an already-allocated slot (e.g. familia 2 when max was 9)
+    # does NOT grow the head — it just fills a previously-sentinel slot.
+    n_old = prev.n_classes()
+    head_delta = {
+        "order":   new_state.n_ordor   - n_old["ordor"],
+        "family":  new_state.n_familia - n_old["familia"],
+        "genus":   new_state.n_genus   - n_old["genus"],
+        "species": new_state.n_species - n_old["species"],
+    }
+    print(f"  Head delta (columns to add): {head_delta}  (new total: {new_state.n_classes()})")
     n_old_dict = {
         "ordor": n_old["ordor"], "familia": n_old["familia"],
         "genus": n_old["genus"], "species": n_old["species"],
@@ -295,14 +307,15 @@ def run_session(
     else:
         protos_species = None
 
-    # Expand each head. Note: prototypes are only computed at the species level
-    # because that's the only one with image-level labels per class. For
+    # Expand each head by the HEAD-SIZE delta (see comment above for why
+    # this differs from `delta`). Prototypes are only computed for species
+    # because that's the only level with image-level labels per class — for
     # order/family/genus we use zero-init (the head will be tuned during training).
-    model.head_ordor = expand_linear(model.head_ordor, delta.order)
-    model.head_familia = expand_linear(model.head_familia, delta.family)
-    model.head_genus = expand_linear(model.head_genus, delta.genus)
+    model.head_ordor   = expand_linear(model.head_ordor,   head_delta["order"])
+    model.head_familia = expand_linear(model.head_familia, head_delta["family"])
+    model.head_genus   = expand_linear(model.head_genus,   head_delta["genus"])
     model.head_species = expand_linear(
-        model.head_species, delta.species, proto=protos_species,
+        model.head_species, head_delta["species"], proto=protos_species,
     )
     model.to(device)
     print(f"  Heads expanded.")
