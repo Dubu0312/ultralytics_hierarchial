@@ -62,7 +62,10 @@ class SessionConfig:
     batch_size: int = 32
     imgsz: int = 224
     workers: int = 4
-    beta_kd: float = 1.0           # KD weight (LwF strength)
+    beta_kd: float = 0.1           # KD weight (LwF strength) — tuned: 1.0 over-anchors species head,
+                                   # blocks intra-genus plasticity. 0.1 keeps no-forgetting AND lets
+                                   # new same-genus species be learned. See ablation in
+                                   # HIERARCHICAL_INCREMENTAL.md §5.4.
     temperature_kd: float = 2.0
     seed: int = 42
     freeze_backbone: bool = True   # V1 default per Section 3.2
