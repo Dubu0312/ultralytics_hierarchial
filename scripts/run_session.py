@@ -54,6 +54,10 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--budget-per-class", type=int, default=None)
     ap.add_argument("--no-populate-base-memory", action="store_true",
                     help="Skip populating memory for base species (default: populate on session 1).")
+    ap.add_argument("--no-replay", action="store_true",
+                    help="Disable exemplar replay. For naive-finetune baseline.")
+    ap.add_argument("--no-kd", action="store_true",
+                    help="Disable LwF knowledge distillation. For naive-finetune baseline.")
     return ap.parse_args()
 
 
@@ -107,6 +111,8 @@ def main() -> None:
         out_ckpt_path=out_ckpt,
         cfg=cfg,
         populate_base_memory=populate_base,
+        use_replay=not args.no_replay,
+        use_kd=not args.no_kd,
     )
 
     print()

@@ -201,6 +201,8 @@ def run_session(
     cfg: SessionConfig | None = None,
     populate_base_memory: bool = False,
     populate_old_species_memory: bool = False,
+    use_replay: bool = True,
+    use_kd: bool = True,
 ) -> SessionMetrics:
     """Train one incremental session.
 
@@ -217,6 +219,10 @@ def run_session(
             training. This is the iCaRL "post-base-session" step.
         populate_old_species_memory: if True, also re-herd memory for old species
             this session (useful if backbone gets unfrozen). V1 default: False.
+        use_replay: if False, the training set contains ONLY new-species data
+            (no exemplar replay). Used for the naive-finetune baseline.
+        use_kd: if False, the loss is just masked CE — no LwF distillation.
+            Used for the naive-finetune baseline.
 
     Returns:
         SessionMetrics with per-epoch training info.
@@ -349,17 +355,21 @@ def run_session(
         )
     new_train_ds = HierarchicalImageDataset(new_train_df, imgsz=cfg.imgsz, augment=True)
 
-    replay_df = build_replay_dataframe(
-        memory.all_items(),
-        new_state.species_parent, new_state.genus_parent, new_state.familia_parent,
-    )
-    if len(replay_df) > 0:
-        replay_ds = HierarchicalImageDataset(replay_df, imgsz=cfg.imgsz, augment=True)
-        train_ds = ConcatDataset([new_train_ds, replay_ds])
-        print(f"  Train: {len(new_train_ds)} new + {len(replay_ds)} replay = {len(train_ds)} total")
+    if use_replay:
+        replay_df = build_replay_dataframe(
+            memory.all_items(),
+            new_state.species_parent, new_state.genus_parent, new_state.familia_parent,
+        )
+        if len(replay_df) > 0:
+            replay_ds = HierarchicalImageDataset(replay_df, imgsz=cfg.imgsz, augment=True)
+            train_ds = ConcatDataset([new_train_ds, replay_ds])
+            print(f"  Train: {len(new_train_ds)} new + {len(replay_ds)} replay = {len(train_ds)} total")
+        else:
+            train_ds = new_train_ds
+            print(f"  Train: {len(train_ds)} (NO REPLAY — memory empty)")
     else:
         train_ds = new_train_ds
-        print(f"  Train: {len(train_ds)} (NO REPLAY — memory empty)")
+        print(f"  Train: {len(train_ds)} new only (--no-replay: naive baseline)")
 
     train_loader = DataLoader(
         train_ds, batch_size=cfg.batch_size, shuffle=True,
@@ -406,7 +416,7 @@ def run_session(
             logits = model(x)
             ce_total, _ = multitask_ce_masked(logits, y, prev.lambdas, fp, gp, sp_t)
 
-            if cfg.beta_kd > 0 and n_old["species"] > 0:
+            if use_kd and cfg.beta_kd > 0 and n_old["species"] > 0:
                 with torch.no_grad():
                     teacher_out = teacher.forward_dict(x)
                 student_out = model.forward_dict(x)
