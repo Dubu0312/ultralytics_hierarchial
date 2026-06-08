@@ -121,7 +121,7 @@ PYTHONPATH=. python scripts/build_base_session.py \
     --out-path pollen_incremental/sessions/session_0_base.pt
 ```
 
-### Bước 4: Chạy từng session incremental
+### Bước 4: Chạy từng session incremental (V1)
 
 ```bash
 # S1 — thêm chro_2 (new leaf dưới genus 5)
@@ -139,14 +139,52 @@ CLI options chính:
 - `--beta-kd F` (default 0.1 — tuned từ smoke ablation)
 - `--lr F` (default 1e-3)
 - `--budget-per-class N` (default 20 exemplars per class)
+- `--no-replay` / `--no-kd` — tắt replay/distillation (cho naive baseline)
+- `--sessions-dir PATH` — output dir khác (cho baseline tách biệt)
+
+### Bước 5: Chạy 3 baseline để so sánh
+
+```bash
+# Naive finetune (lower bound — no replay, no KD)
+mkdir -p pollen_incremental/sessions/naive
+cp pollen_incremental/sessions/session_0_base.pt pollen_incremental/sessions/naive/
+for s in 1 2 3 4 5; do
+    PYTHONPATH=. python scripts/run_session.py --session $s --epochs 30 --batch-size 16 \
+        --no-replay --no-kd --no-populate-base-memory \
+        --sessions-dir pollen_incremental/sessions/naive
+done
+
+# SimpleCIL (train-free PTM-CIL baseline)
+PYTHONPATH=. python scripts/run_simplecil.py
+
+# CacheRefit (joint training upper bound — không phải CL)
+PYTHONPATH=. python scripts/run_cache_refit.py
+```
+
+### Bước 6: Compute R[i][j] matrix + FM + BWT cho cả 4 method
+
+```bash
+PYTHONPATH=. python scripts/eval_all_baselines.py
+```
+
+Output: `pollen_incremental/results/all_baselines.{json,csv}` + bảng so sánh stdout.
 
 ---
 
 ## Kết quả hiện tại
 
-### Smoke test S₀ → S₁ (β_kd ablation)
+### Bảng tổng hợp 4 method (full stream S₀→S₅, yolo11x)
 
-Setting: 17 base species → +chro_2 (new leaf đồng genus 5, đã có chro/chro_1).
+| Method | Cumulative HierAcc | FM (↓) | BWT |
+|---|---:|---:|---:|
+| **Naive finetune** (lower bound) | 41.9% ❌ | 0.153 | -0.153 |
+| **SimpleCIL** (train-free) | 64.3% | 0.059 | -0.037 |
+| **V1 (replay + KD, our)** | **89.2%** ✅ | 0.120 | -0.061 |
+| **CacheRefit** (upper bound) | 88.0% | 0.021 | -0.015 |
+
+Chi tiết phân tích + R[i][j] matrix per-method ở [RESULTS.md](RESULTS.md).
+
+### Smoke test S₀ → S₁ (β_kd ablation)
 
 | Config | 17 OLD test | chro_2 NEW | 18 cumul | Notes |
 |---|---:|---:|---:|---|
@@ -268,12 +306,14 @@ PYTHONPATH=/home/dubu/manh/lab/ultralytics python -m pytest pollen_incremental/t
 
 Theo HIERARCHICAL_INCREMENTAL.md §0 "Roadmap":
 
-- [ ] Baselines BẮT BUỘC để so:
-  - Lower bound: naive finetune (no replay, no KD)
-  - Upper bound: cache-refit (joint training)
-  - SimpleCIL (train-free, frozen prototype only)
-  - iCaRL phẳng (flat, không taxonomy)
-- [ ] Ablation trung tâm: flat-CIL vs hierarchical-CIL
-- [ ] Full R[i][j] matrix + FM + BWT metrics qua tất cả 6 session
-- [ ] Multi-seed (3-5 seed) cho mean ± std
-- [ ] Curriculum / mixed loss để cải thiện plasticity nếu cần
+- [x] **Baselines** (Phase 4 ✅):
+  - [x] Naive finetune — lower bound (HierAcc 41.9%)
+  - [x] SimpleCIL — train-free (HierAcc 64.3%)
+  - [x] CacheRefit — upper bound (HierAcc 88.0%)
+  - [ ] iCaRL phẳng (flat, không taxonomy) — chưa cần thiết vì SimpleCIL flat-prototype đã cover phần này
+- [x] **Full R[i][j] matrix + FM + BWT** (Phase 4 ✅)
+- [ ] **Ablation flat-vs-hierarchical** (tắt masked decoding)
+- [ ] **Multi-seed** (3-5 seed) cho mean ± std — bắt buộc cho paper
+- [ ] **Curriculum** / mixed loss để cải thiện plasticity intra-genus
+- [ ] **Vẽ figure** (learning curve, FM bar chart) cho paper
+- [ ] **Update HIERARCHICAL_INCREMENTAL.md** Section 5 với số liệu thật
