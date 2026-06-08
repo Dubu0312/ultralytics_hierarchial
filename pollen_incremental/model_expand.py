@@ -87,17 +87,17 @@ def expand_linear(
 
 @torch.no_grad()
 def compute_prototype(
-    feature_extractor: nn.Module,
+    feature_extractor,
     images: Iterable[torch.Tensor],
     device: torch.device | str = "cpu",
 ) -> torch.Tensor:
     """Compute one L2-normalized mean-feature prototype for a single class.
 
     Args:
-        feature_extractor: a callable that maps a batch of images (B, 3, H, W)
-            to features (B, D). Must be in eval mode and frozen (we do not
-            backprop through it here, but the caller is responsible for the
-            frozen state).
+        feature_extractor: a callable mapping (B, 3, H, W) → (B, D). May be an
+            nn.Module (we'll call .eval() on it) OR a plain callable / bound
+            method (caller is responsible for putting the underlying module in
+            eval mode and freezing it).
         images: an iterable yielding image batches (B, 3, H, W). The whole
             iterable is consumed and concatenated; all batches must belong to
             ONE class.
@@ -109,7 +109,9 @@ def compute_prototype(
     Raises:
         ValueError: if `images` yields no batches.
     """
-    feature_extractor.eval()
+    if isinstance(feature_extractor, nn.Module):
+        feature_extractor.eval()
+
     feats: list[torch.Tensor] = []
     for batch in images:
         batch = batch.to(device)
@@ -127,7 +129,7 @@ def compute_prototype(
 
 
 def compute_prototypes_per_class(
-    feature_extractor: nn.Module,
+    feature_extractor,
     images_by_class: dict[int, Iterable[torch.Tensor]],
     device: torch.device | str = "cpu",
 ) -> torch.Tensor:
