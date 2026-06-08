@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Incremental learning outputs (checkpoints, logs, figures)
+pollen_incremental/sessions/
+pollen_incremental/results/
+
 # C extensions
 *.so
 
