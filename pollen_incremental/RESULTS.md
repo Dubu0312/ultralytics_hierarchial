@@ -148,7 +148,20 @@ Chia 22 loài Đồng Văn thành **6 session** (HIERARCHICAL_INCREMENTAL.md §5
 
 Cố ý mix new leaf + new branch để test cả 2 path mở rộng head. Cumulative ở S₅ = 22 loài full = match dataset gốc.
 
-Số ảnh train/val/test luỹ tích:
+**Số ảnh thêm mỗi session** (delta — chỉ ảnh của loài mới):
+
+| Session | Loài thêm | Train (Δ) | Val (Δ) | Test (Δ) |
+|---|---|---:|---:|---:|
+| S₀ base | 17 loài (chi tiết bên dưới) | 1379 | 167 | 186 |
+| S₁ | `chro_2` | **81** | 10 | 11 |
+| S₂ | `abel` | **80** | 10 | 11 |
+| S₃ | `ruel_2` | **65** | 8 | 9 |
+| S₄ | `bras` | **70** | 8 | 10 |
+| S₅ | `ipom_1` | **105** | 13 | 14 |
+
+→ Mỗi loài mới trung bình ~80 ảnh train (median 80), khớp với phân phối dataset gốc (60-190 ảnh/loài). `ipom_1` nhiều nhất (105), `ruel_2` ít nhất (65). Đáng chú ý: **train chỉ với ~80 ảnh loài mới + 340 ảnh replay (20×17)** = 420 ảnh tổng — rất ít cho 1 task discrimination.
+
+**Cumulative qua các session** (lũy kế):
 
 | Session | Train | Val | Test |
 |---|---:|---:|---:|
@@ -206,6 +219,33 @@ Tất cả tính bằng `scripts/eval_all_baselines.py`.
 - Spread giữa methods rất lớn (41.9% → 89.2% HierAcc) → việc chọn method **quan trọng hơn nhiều** so với việc tune hyperparam của 1 method.
 - V1 đạt 99% của một upper bound dùng full data (89.2 / 88.0) — gần như tối ưu cho frozen backbone.
 - CacheRefit có FM tốt nhất (0.021) vì refit từ data đầy đủ — không phải CL nhưng tốt nhất nếu được phép.
+
+### 4.1.bis Phân tích V1 — loài cũ vs loài mới (model cuối stream)
+
+Bóc tách HierAcc 89.2% của V1 ở S₅ theo nguồn gốc loài:
+
+| Tập test | #loài | #ảnh test | **HierAcc** | Diễn giải |
+|---|---:|---:|---:|---|
+| **17 loài cũ** (base) | 17 | 186 | **90.9%** | V1 nhớ loài cũ rất tốt — thậm chí tăng nhẹ so với base S₀ (89.8%) |
+| 5 loài mới (TB weighted) | 5 | 55 | **85.5%** | Học loài mới khá tốt, nhưng có spread |
+| **Toàn bộ 22 loài** | 22 | 241 | **89.2%** | Cumulative (báo cáo chính) |
+
+Chi tiết từng loài mới (model cuối S₅ trên test split CỦA loài đó):
+
+| Session | Loài | Case | #test | HierAcc | Ghi chú |
+|---|---|---|---:|---:|---|
+| S₁ | `chro_2` | new leaf | 11 | 81.8% | Thách thức nhất — cùng genus 5 với `chro`, `chro_1` |
+| S₂ | `abel` | new branch | 11 | 72.7% | Drift nửa sau stream (R[2][2]=1.0 → R[5][2]=0.727) |
+| S₃ | `ruel_2` | new leaf | 9 | 66.7% | Cùng genus 12 với `ruel`, `ruel_1`; ít ảnh nhất (65 train) |
+| S₄ | `bras` | new branch | 10 | 90.0% | Order 4 hoàn toàn mới — feature dễ tách |
+| S₅ | `ipom_1` | new leaf | 14 | 100.0% | Vừa học → chưa bị drift; chỉ cạnh tranh với `ipom` |
+
+**Quan sát**:
+
+1. **Loài cũ tăng nhẹ** (89.8% → 90.9%) sau khi học thêm 5 loài → KD + replay regularize tốt, không có forgetting catastrophic.
+2. **Loài mới khó nhất là intra-genus old-stream** (chro_2 sau 4 session = 81.8%, ruel_2 sau 2 session = 66.7%) — phải vừa nhớ lâu vừa khác sibling cùng genus.
+3. **Loài mới dễ nhất là new branch (bras 90.0%)** và **vừa học (ipom_1 100%)** — confirm: branch dễ vì khác feature, leaf vừa học dễ vì chưa bị overwritten.
+4. **Drift xuất hiện** ở `abel` và `ruel_2` (R[i][i]=1.0/0.889 → R[5][i]=0.727/0.667) — học sau làm trôi học trước, nhưng không catastrophic.
 
 ### 4.2 R[i][j] matrices đầy đủ
 
