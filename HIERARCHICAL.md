@@ -705,7 +705,34 @@ python test_yolo.py --ckpt outputs_masked/best_model.pt --root_test /path/to/tes
 
 ### 7.4 Random seed
 
-`SEED = 42` được set cho `random` và `torch.manual_seed` ở đầu cả 2 script training.
+`SEED = 42` được set cho `random` và `torch.manual_seed` ở đầu cả 2 script training (`train_hierarchical.py` và `train_hierarchical_masked.py`).
+
+Riêng các model train bằng **Ultralytics API** (flat species và 3 cascade model) dùng `seed=0` (Ultralytics default).
+
+### 7.5 Bảng tổng hợp experiments đã chạy
+
+Để future-self / agent khác biết lấy gì ở đâu, đây là toàn bộ experiment đã chạy trên dataset Đồng Văn (test 241 ảnh):
+
+| # | Experiment | Script | Output folder | Args lưu ở | Test HierAcc |
+|---|---|---|---|---|---:|
+| 1 | Multi-head Indep CE yolov8s | [train_hierarchical.py](ultralytics/models/yolo/classify/train_hierarchical.py) | [yolov8s-trained/](ultralytics/models/yolo/classify/yolov8s-trained/) | Constants trong script + CLI args | 93.8% |
+| 2 | Multi-head Indep CE yolo11x | [train_hierarchical.py](ultralytics/models/yolo/classify/train_hierarchical.py) | [yolo11x-trained/](ultralytics/models/yolo/classify/yolo11x-trained/) | Constants trong script + CLI args | 94.2% |
+| 3 | Multi-head Masked CE yolov8s | [train_hierarchical_masked.py](ultralytics/models/yolo/classify/train_hierarchical_masked.py) | [yolov8s-trained-masked/](ultralytics/models/yolo/classify/yolov8s-trained-masked/) | Constants trong script + CLI args | 92.5% |
+| 4 | Multi-head Masked CE yolo11x | [train_hierarchical_masked.py](ultralytics/models/yolo/classify/train_hierarchical_masked.py) | [yolo11x-trained-masked/](ultralytics/models/yolo/classify/yolo11x-trained-masked/) | Constants trong script + CLI args | **95.0% ★** |
+| 5 | Multi-head Ultra-hparams yolo11x | [train_hierarchical_ultra_hparams.py](ultralytics/models/yolo/classify/train_hierarchical_ultra_hparams.py) | [yolo11x-trained-ultra-hparams/](ultralytics/models/yolo/classify/yolo11x-trained-ultra-hparams/) | Constants trong script (SGD+EMA+RandAug, mô phỏng Ultralytics default) | 92.5% (đã loại khỏi bảng chính) |
+| 6 | Flat species (yolo11x, Ultralytics API) | `YOLO("yolo11x-cls.pt").train(...)` | [yolo11x-flat-default/](ultralytics/models/yolo/classify/yolo11x-flat-default/) | **`args.yaml`** trong folder (Ultralytics tự save) | — (đã loại khỏi bảng) |
+| 7 | Cascade Order (yolo11x) | `YOLO("yolo11x-cls.pt").train(...)` | [yolo11x-flat-order/](ultralytics/models/yolo/classify/yolo11x-flat-order/) | **`args.yaml`** trong folder | Per-level 97.5% |
+| 8 | Cascade Family (yolo11x) | `YOLO("yolo11x-cls.pt").train(...)` | [yolo11x-flat-family/](ultralytics/models/yolo/classify/yolo11x-flat-family/) | **`args.yaml`** trong folder | Per-level 96.7% |
+| 9 | Cascade Genus (yolo11x) | `YOLO("yolo11x-cls.pt").train(...)` | [yolo11x-flat-genus/](ultralytics/models/yolo/classify/yolo11x-flat-genus/) | **`args.yaml`** trong folder | Per-level 96.7% |
+| 10 | Cascade ensemble eval | [test_cascade.py](ultralytics/models/yolo/classify/yolo11x-cascade-eval/test_cascade.py) | [yolo11x-cascade-eval/](ultralytics/models/yolo/classify/yolo11x-cascade-eval/) | — (eval-only) | **93.4%** (HierAcc) |
+
+**Cấu trúc output chung**:
+- Mỗi folder train có `best_model.pt` (multi-head) hoặc `weights/best.pt` (Ultralytics API) — checkpoint tốt nhất theo val metric.
+- Mỗi folder test có `predictions_*.csv` (per-image), `metrics_summary_*.csv` (tổng hợp), `cm_*/` (confusion matrices).
+
+**Đọc args đã dùng**:
+- Multi-head scripts (#1-5): args ở constants đầu file (`LAMBDA`, `SGD_LR0`, ...) + CLI args truyền vào (xem [Section 7.2](#72-lệnh-tái-lập) hoặc Phụ lục B).
+- Ultralytics API (#6-9): **đọc `args.yaml` trong từng output folder** — Ultralytics tự serialize đầy đủ 80+ hyperparam (optimizer, lr0, lrf, momentum, weight_decay, warmup, EMA, AMP, augmentation policies, v.v.). Ví dụ: [yolo11x-flat-default/args.yaml](ultralytics/models/yolo/classify/yolo11x-flat-default/args.yaml).
 
 ---
 
@@ -912,6 +939,160 @@ python test_yolo.py --ckpt ../best_model.pt --base_model yolov8s-cls.pt \
 ```
 
 Output mỗi lần chạy: `predictions_*.csv` (per-image), `metrics_summary_yolo.csv` (summary), `cm_*/` (confusion matrices PNG + CSV).
+
+### B.7 Cascade baseline (4 model độc lập, đã chạy)
+
+#### B.7.1 Tạo 3 dataset mới (order/family/genus)
+
+```bash
+cd /home/dubu/manh/lab/ultralytics
+python prepare_cascade_datasets.py
+```
+
+Script đọc [`pollen_dong_van.csv`](/home/dubu/manh/dongvan-yolo/pollen_dong_van.csv) → regroup ảnh từ `dataset-dongvan-train/{train,val,test}/<species>/` thành 3 dataset mới theo nhãn cha:
+
+```
+/home/dubu/manh/dongvan-yolo/
+├── dataset-dongvan-order/         (5 class folder: ord_1, ord_2, ord_3, ord_4, ord_5)
+├── dataset-dongvan-family/        (9 class folder: fam_1 ... fam_9)
+└── dataset-dongvan-genus/         (15 class folder: gen_1 ... gen_15)
+```
+
+Mỗi dataset có 1,780 / 216 / 241 ảnh (train/val/test) — giống dataset gốc, chỉ regroup theo nhãn cha. Filename collision được xử lý bằng prefix `<species>__` (vd `ord_1/ager__Image-1.jpg`).
+
+Implementation: [prepare_cascade_datasets.py](prepare_cascade_datasets.py).
+
+#### B.7.2 Train 3 model order/family/genus (đã chạy)
+
+Dùng Ultralytics Python API với cùng args như flat species (Ultralytics default cho mọi hyperparam khác):
+
+```python
+from ultralytics import YOLO
+
+for level in ["order", "family", "genus"]:
+    model = YOLO("yolo11x-cls.pt")
+    model.train(
+        data=f"/home/dubu/manh/dongvan-yolo/dataset-dongvan-{level}",
+        imgsz=224,
+        batch=32,
+        epochs=100,
+        patience=20,
+        project="ultralytics/models/yolo/classify",
+        name=f"yolo11x-flat-{level}",
+        exist_ok=True,
+    )
+```
+
+Lưu ý: Ultralytics save output sang `/home/dubu/manh/ultralytics/runs/classify/ultralytics/models/yolo/classify/yolo11x-flat-{level}/` (do quirk của API). Cần copy thủ công về `lab/ultralytics/ultralytics/models/yolo/classify/yolo11x-flat-{level}/`.
+
+Model thứ 4 (species) đã có sẵn ở [`yolo11x-flat-default/`](ultralytics/models/yolo/classify/yolo11x-flat-default/) (cũng train bằng API tương tự với `data=dataset-dongvan-train`).
+
+Kết quả train:
+- yolo11x-flat-order: 39 epoch, best at epoch 19, val top1 95.8%
+- yolo11x-flat-family: 32 epoch, best at epoch 12, val top1 95.4%
+- yolo11x-flat-genus: 43 epoch, best at epoch 23, val top1 95.8%
+- yolo11x-flat-default (species): 46 epoch, best at epoch 26, val top1 95.8%
+
+Hyperparam đầy đủ (Ultralytics default) được tự động lưu vào `<output_folder>/args.yaml` mỗi lần train — xem file đó để tái lập chính xác.
+
+#### B.7.3 Test cascade (đã chạy)
+
+```bash
+cd ultralytics/models/yolo/classify/yolo11x-cascade-eval
+python test_cascade.py
+```
+
+Script load 4 model, predict song song trên 241 ảnh test, ghép thành chain (order, family, genus, species), compute per-level acc + HierAcc + consistency rate. Output:
+- `predictions_cascade.csv` — per-image prediction
+- `metrics_summary_cascade.csv` — tổng hợp metric
+- `cm_cascade/` — confusion matrix 4 cấp
+
+Implementation: [yolo11x-cascade-eval/test_cascade.py](ultralytics/models/yolo/classify/yolo11x-cascade-eval/test_cascade.py).
+
+**Kết quả test**: HierAcc 93.4%, Consistency rate 95.0% (229/241 chain hợp lệ). Chi tiết ở [Section 5.1.bis](#51bis-bảng-so-sánh-cascade-vs-multi-head-yolo11x).
+
+### B.8 Flat species baseline (yolo11x, Ultralytics API, đã chạy)
+
+Model species-only dùng làm thành phần thứ 4 của cascade. Cũng là baseline tham khảo (đã loại khỏi bảng chính của paper theo quyết định scope).
+
+```python
+from ultralytics import YOLO
+
+model = YOLO("yolo11x-cls.pt")
+model.train(
+    data="/home/dubu/manh/dongvan-yolo/dataset-dongvan-train",
+    imgsz=224,
+    batch=32,
+    epochs=100,
+    patience=20,
+    project="ultralytics/models/yolo/classify",
+    name="yolo11x-flat-default",
+    exist_ok=True,
+)
+```
+
+Tất cả hyperparam khác để **Ultralytics default** (optimizer=auto → SGD, lr0=0.01, momentum=0.937, wd=0.0005, lrf=0.01 linear schedule, warmup=3 epoch, EMA on, AMP on, RandAugment + erasing + HSV jitter + translate + scale + fliplr, seed=0). Full config tự động save vào [yolo11x-flat-default/args.yaml](ultralytics/models/yolo/classify/yolo11x-flat-default/args.yaml).
+
+**Quirk Ultralytics**: API save output sang `/home/dubu/manh/ultralytics/runs/classify/ultralytics/models/yolo/classify/yolo11x-flat-default/` thay vì path chỉ định. Cần copy thủ công về `lab/ultralytics/ultralytics/models/yolo/classify/yolo11x-flat-default/`.
+
+Kết quả train: 46 epoch (early stop), best at epoch 26, val top1 95.8%.
+
+Test (dùng script tự viết để derive parents từ taxonomy):
+
+```bash
+cd ultralytics/models/yolo/classify/yolo11x-flat-default
+python test_flat.py
+```
+
+Implementation test: [yolo11x-flat-default/test_flat.py](ultralytics/models/yolo/classify/yolo11x-flat-default/test_flat.py). Dùng `YOLO.predict()` của Ultralytics để inference (matches training preprocessing), sau đó derive parents từ predicted species qua mapping CSV.
+
+Kết quả test: Species acc 96.3%, HierAcc 96.3% (do parents derive deterministic từ species).
+
+### B.9 Multi-head Ultra-hparams yolo11x (đã chạy, không show trong bảng chính)
+
+Variant của multi-head dùng hyperparam Ultralytics-style (thay AdamW custom → SGD+EMA+RandAugment) để fair comparison với flat species. Không vào bảng chính vì thua AdamW custom 2.5%, narrative gây nhiễu.
+
+```bash
+python ultralytics/models/yolo/classify/train_hierarchical_ultra_hparams.py \
+    --data /home/dubu/manh/dongvan-yolo/dataset-dongvan-train \
+    --mapping_csv /home/dubu/manh/dongvan-yolo/pollen_dong_van.csv \
+    --model yolo11x-cls.pt \
+    --output ultralytics/models/yolo/classify/yolo11x-trained-ultra-hparams
+```
+
+Các hyperparam khác giữ default trong script: `epochs=100`, `batch-size=32`, `imgsz=224`, `patience=20`, `workers=8`.
+
+Khác biệt hyperparam so với `train_hierarchical.py` (AdamW custom) — xem constants đầu file [`train_hierarchical_ultra_hparams.py`](ultralytics/models/yolo/classify/train_hierarchical_ultra_hparams.py):
+- Optimizer: **SGD** (vs AdamW), lr0=0.01, momentum=0.937, wd=0.0005
+- LR schedule: **linear** (lrf=0.01) thay cho cosine
+- **Warmup 3 epoch** (momentum 0.8→0.937, bias lr 0.1→0.01)
+- **EMA** decay=0.9999 (eval với EMA model)
+- **AMP** (mixed precision)
+- **Label smoothing 0.1**
+- Aug: **RandAugment(2,9)** + HSV-like ColorJitter + RandomErasing(0.4) — mạnh hơn baseline
+- **Không freeze backbone** (vs 3 epoch đầu)
+- **seed=0** (vs 42)
+
+Kết quả train: 73 epoch (early stop), val HierAcc tốt nhất 91.7% (masked decoding).
+
+Test với 2 chiến lược decoding (dùng [test_yolo.py](ultralytics/models/yolo/classify/yolov8s-trained/test/test_yolo.py)):
+
+```bash
+cd ultralytics/models/yolo/classify/yolo11x-trained-ultra-hparams/test
+python test_yolo.py --ckpt ../best_model.pt --base_model yolo11x-cls.pt \
+    --root_test /home/dubu/manh/dongvan-yolo/dataset-dongvan-train/test \
+    --mapping_csv /home/dubu/manh/dongvan-yolo/pollen_dong_van.csv \
+    --out_csv predictions_indep.csv --confmat_dir cm_indep
+# Test HierAcc: 89.2%
+
+python test_yolo.py --ckpt ../best_model.pt --base_model yolo11x-cls.pt \
+    --root_test /home/dubu/manh/dongvan-yolo/dataset-dongvan-train/test \
+    --mapping_csv /home/dubu/manh/dongvan-yolo/pollen_dong_van.csv \
+    --masked --out_csv predictions_masked.csv --confmat_dir cm_masked
+# Test HierAcc: 92.5%
+```
+
+Checkpoint: [yolo11x-trained-ultra-hparams/best_model.pt](ultralytics/models/yolo/classify/yolo11x-trained-ultra-hparams/best_model.pt).
 
 ---
 
